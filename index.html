@@ -13,10 +13,18 @@
   LINE 自家的 line.me 頁面又只會呼叫已淘汰的 line:// → 30 幾位家長卡在「請啟動 LINE 應用程式」。
 
   這頁的做法（來源：shalanah/inapp-debugger 實測表，iOS 2026-03-07、Android 2024-11-07）：
-    iPhone  的 Messenger 放行 x-safari-https://  → 把家長送到 Safari，Safari 上 line.me 是 Universal Link → 直接開 LINE
-    Android 的 Messenger 放行 intent://          → 直接叫出 LINE，沒裝就退回 line.me
+    iPhone  的 Messenger：實測表說放行 x-safari-https://，**但老師真機測是無效的**（見下）→ 改成顯示大按鈕讓家長點
+    Android 的 Messenger 放行 intent://          → 直接叫出 LINE，沒裝就退回 line.me（尚未真機測）
     不在內建瀏覽器（已經是 Safari/Chrome）        → 直接去 line.me，系統會開 LINE
-  家長只需要點一次。頁面上仍留三顆按鈕當保險：自動跳失敗、或家長回上一頁時還有路可走。
+  頁面上留三顆按鈕當保險：自動跳失敗、或家長回上一頁時還有路可走。
+
+  2026-09-24 老師 iPhone 真機實測（Messenger 私訊點進來）：
+    x-safari-https:// 自動跳 ✘、按鈕點 ✘（沒反應）
+    頁面上親手點 https://line.me/R/ti/p/… 按鈕 ✔ 直接開 LINE
+  → iPhone 內建瀏覽器改成「不自動跳、一進來就是大按鈕（https）」。自動用 JS 導到 https 不做：
+    非使用者點擊的導向不會觸發 Universal Link，只會把家長載到 LINE 那頁壞掉的「請啟動」畫面。
+  → 所以 iPhone 上最少是兩次點擊（Messenger 點連結＋頁面點按鈕），這是 Meta 刻意擋的，沒有連結能繞過第一下。
+  → ?auto=1 是實驗：頁面自己幫家長「按」那顆按鈕（合成點擊），要真機測；沒測過前不要當預設。
 
   修改這頁之後要重新 push 到 GitHub Pages 才會生效（本機檔案改了沒用）。
   加 ?debug=1 可以看到頁面判斷出什麼、走了哪一條，而且不會自動跳。
@@ -72,6 +80,7 @@
   var inMeta    = /FBAN|FBAV|FB_IAB|FBIOS|Messenger|Instagram|Threads/i.test(ua);   // Facebook／Messenger／Instagram／Threads 內建瀏覽器
   var inLINE    = /\bLine\//i.test(ua);
   var debug     = /[?&]debug=1/.test(location.search);
+  var autoClick = /[?&]auto=1/.test(location.search);   // 實驗：讓頁面自己幫家長按按鈕（iPhone 內建瀏覽器）
 
   var main = document.getElementById('btnMain');
   var alt  = document.getElementById('btnAlt');
@@ -82,9 +91,12 @@
     plan = '已經在 LINE 裡面了，直接開好友頁';
     target = HTTPS; main.href = HTTPS; alt.href = HTTPS;
   } else if (isIOS && inMeta) {
-    plan = 'iPhone 的 Messenger/FB/IG 內建瀏覽器 → 用 x-safari-https 跳到 Safari，再由 Safari 開 LINE';
-    target = SAFARI; main.href = SAFARI; alt.href = HTTPS;
-    alt.textContent = '沒跳出去？改用這個';
+    // 2026-09-24 真機：x-safari 無效；親手點 https 按鈕有效。不自動跳，讓家長點。
+    plan = 'iPhone 的 Messenger/FB/IG 內建瀏覽器 → 顯示大按鈕（https Universal Link），家長點一下開 LINE；不自動跳';
+    target = ''; main.href = HTTPS; alt.href = SAFARI;
+    alt.textContent = '沒反應？換一種方式';
+    document.querySelector('h1').textContent = '請點下面的綠色按鈕打開 LINE';
+    lead.textContent = '點一下就會跳到 LINE，加好友後馬上收到講義領取步驟。';
   } else if (isAndroid && inMeta) {
     plan = 'Android 的 Messenger/FB/IG 內建瀏覽器 → 用 intent:// 直接叫出 LINE';
     target = INTENT; main.href = INTENT; alt.href = CHROME_ESC;
@@ -114,6 +126,13 @@
     d.innerHTML = '<b>判斷</b>：' + plan + '<br><b>會跳去</b>：' + (target || '（不跳）') + '<br><b>UA</b>：' + ua;
     document.querySelector('h1').textContent = '（除錯模式，不自動跳）';
     return;
+  }
+
+  // 實驗模式：iPhone 內建瀏覽器＋?auto=1 → 用合成點擊按主按鈕，看 Universal Link 會不會被觸發
+  if (autoClick && isIOS && inMeta) {
+    document.querySelector('h1').textContent = '正在幫你打開 LINE…（實驗）';
+    setTimeout(function () { main.click(); }, 350);
+    setTimeout(function () { document.querySelector('h1').textContent = '沒跳的話請點下面的綠色按鈕'; }, 2500);
   }
 
   // 自動跳：頁面一載入就走。留 350ms 讓按鈕先畫出來，萬一跳轉被擋家長也有東西可按。
